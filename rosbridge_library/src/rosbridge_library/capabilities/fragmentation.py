@@ -87,38 +87,33 @@ class Fragmentation(Capability):
 
     def _fragment_generator(self, msg, size, mid):
         """ Returns a generator of fragment messages """
-        msg = {
-            "op": "fragment",
-            "id": mid,
-            "data": "",
-            "num": 0,
-            "total": 0,
-            "fill": ""
-        }
-        header_size = len(str(msg))
+        header_size = len(str(self._create_fragment("", 0, 0, mid, "")))
         total = 0
         msg_length = 0
         try:
-            (total, msg_length) = self._determine_n_fragments(len(msg), size, header_size)
+            (msg_length, total) = self._determine_n_fragments(len(msg), size, header_size)
         except RuntimeError:
             self.protocol.log("error", "Header size is to large for message size")
-            return []
-        msg['total'] = total
-        n = 0
-        for i in range(0, total):
-            fragment = msg[i:i+msg_length]
-            msg['data'] = fragment
-            msg['num'] = n
-            fill_length = size - len(str(fragment))
-            msg['fill'] = "".join(["0" for i in xrange(fill_length)])
-            n = n + 1
+            yield []
+        i = 0
+        fragment_size = msg_length - len(str(self._create_fragment("", 0, total, mid, "")))
+        for n in range(total):
+            fragment = msg[i:min(i+fragment_size, len(msg))]
+            if (i + fragment_size > len(msg)):
+                fill_length = size - msg_length + (i+fragment_size - len(msg))
+            else:
+                fill_length = size - msg_length
+            yield self._create_fragment(fragment, n, total, mid, "".join(["0" for j in xrange(fill_length)]))
+            i = i + fragment_size
+            fragment_size = msg_length - len(str(self._create_fragment("", n+1, total, mid, "")))
 
     def _determine_n_fragments(self, msg_len, size, header_size):
-        """ Recursive function to determin the number and size of fragments """
+        """ Recursive function to determine the number and size of fragments """
         A = [msg_len + header_size]
+        msg_len += header_size
         total = 1
 
-        while A[-1]/total > size:
+        while A[-1]/total+1 > size:
             msg_len += header_size
             temp = total +1
             temp_log = math.floor(math.log(temp)/math.log(10))
@@ -129,5 +124,16 @@ class Fragmentation(Capability):
             total = temp
             A.append(msg_len)
 
-        print (msg_len, header_size)
-        return (msg_len/total, total)
+        return (msg_len/total+1, total)
+
+    def _create_fragment(self, fragment, num, total, mid, fill):
+        """ Given a string fragment of the original message, creates
+        the appropriate fragment message """
+        return {
+            "op": "fragment",
+            "id": mid,
+            "data": fragment,
+            "num": num,
+            "total": total,
+            "fill": fill
+        }
